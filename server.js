@@ -2,10 +2,14 @@ const express = require("express");
 const mysql = require("mysql2");
 const cors = require("cors");
 require("dotenv").config();
+const bcrypt = require('bcrypt');
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+    origin: ['https://your-app-name.vercel.app', 'http://localhost:4200'],
+    credentials: true
+}));
 
 // Connect to your TiDB Cloud Database
 const pool = mysql.createPool({

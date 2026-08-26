@@ -441,9 +441,6 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
 });
 const bcrypt = require('bcrypt');
 
-// ==========================================
-// USER LOGIN ROUTE (Secure bcrypt check)
-// ==========================================
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
 
@@ -462,19 +459,26 @@ app.post('/api/auth/login', async (req, res) => {
 
         const user = rows[0];
         
-        // Note: If you have existing plain text passwords in your database during migration, 
-        // you can fallback check: password === user.Password. For production, always use bcrypt.
-        const passwordMatch = (password === user.Password) || (await bcrypt.compare(password, user.Password));
+        // This handles both plain text passwords in your DB and bcrypt hashes
+        let passwordMatch = false;
+        if (password === user.Password) {
+            passwordMatch = true; // Matches your current plain text setup
+        } else {
+            try {
+                passwordMatch = await bcrypt.compare(password, user.Password); // Matches bcrypt if hashed later
+            } catch (e) {
+                passwordMatch = false;
+            }
+        }
 
         if (!passwordMatch) {
             return res.status(401).json({ error: 'Invalid Credentials' });
         }
 
-        // Return user session info (Never return the password hash back)
         res.json({
             userId: user.UserId,
             username: user.Username,
-            token: 'secure-token-session-' + user.UserId // Expand to JWT if required later
+            token: 'secure-token-session-' + user.UserId
         });
 
     } catch (err) {

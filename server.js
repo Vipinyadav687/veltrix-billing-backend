@@ -36,7 +36,7 @@ app.get("/api/clients", (req, res) => {
 });
 
 // ==========================================
-// 2. SAVE NEW INVOICE
+// SAVE NEW INVOICE & ITEMS (Sale Entry)
 // ==========================================
 app.post("/api/invoices", async (req, res) => {
     const {
@@ -46,11 +46,15 @@ app.post("/api/invoices", async (req, res) => {
         invoiceDate,
         dueDate,
         placeOfSupply,
+        poRef,
+        poDate,
         subTotal,
         sgst,
         cgst,
         igst,
         totalAmount,
+        notes,
+        terms,
         items,
     } = req.body;
 
@@ -59,25 +63,16 @@ app.post("/api/invoices", async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // Insert Invoice
+        // 1. Insert Invoice Header
         const invQuery = `INSERT INTO invoices 
             (UserId, ClientId, InvoiceNo, InvoiceDate, DueDate, PlaceOfSupply, SubTotal, SGSTAmount, CGSTAmount, IGSTAmount, TotalAmount) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         await connection.execute(invQuery, [
-            userId,
-            clientId,
-            invoiceNo,
-            invoiceDate,
-            dueDate,
-            placeOfSupply,
-            subTotal,
-            sgst,
-            cgst,
-            igst,
-            totalAmount,
+            userId, clientId, invoiceNo, invoiceDate, dueDate, 
+            placeOfSupply, subTotal, sgst, cgst, igst, totalAmount
         ]);
 
-        // Insert Items
+        // 2. Insert Invoice Items
         const itemQuery = `INSERT INTO invoiceitems 
             (UserId, InvoiceNo, Description, HSNSAC, Qty, Rate, SGST_Perc, CGST_Perc, Amount) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
@@ -97,12 +92,11 @@ app.post("/api/invoices", async (req, res) => {
         }
 
         await connection.commit();
-        res.status(201).json({ message: "Invoice saved successfully" });
+        res.status(201).json({ message: "Invoice saved successfully!" });
     } catch (err) {
         await connection.rollback();
-        res
-            .status(500)
-            .json({ error: "Database transaction failed", details: err });
+        console.error('Invoice save error:', err);
+        res.status(500).json({ error: "Database transaction failed", details: err });
     } finally {
         connection.release();
     }

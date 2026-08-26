@@ -149,6 +149,38 @@ app.get('/api/dashboard/stats', async (req, res) => {
         connection.release();
     }
 });
+// ==========================================
+// CREATE NEW CLIENT
+// ==========================================
+app.post('/api/clients', async (req, res) => {
+    const { userId, companyName, gstin, address, pincode, city, state } = req.body;
+    try {
+        const connection = await pool.promise().getConnection();
+        const query = `INSERT INTO clients (UserId, CompanyName, GSTIN, Address, Pincode, City, State) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        await connection.execute(query, [userId, companyName, gstin, address, pincode, city, state]);
+        connection.release();
+        res.status(201).json({ message: 'Client added successfully!' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to add client', details: err });
+    }
+});
+
+// ==========================================
+// UPDATE EXISTING CLIENT
+// ==========================================
+app.put('/api/clients/:id', async (req, res) => {
+    const { companyName, gstin, address, pincode, city, state } = req.body;
+    const clientId = req.params.id;
+    try {
+        const connection = await pool.promise().getConnection();
+        const query = `UPDATE clients SET CompanyName=?, GSTIN=?, Address=?, Pincode=?, City=?, State=? WHERE ClientId=?`;
+        await connection.execute(query, [companyName, gstin, address, pincode, city, state, clientId]);
+        connection.release();
+        res.json({ message: 'Client updated successfully!' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update client', details: err });
+    }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

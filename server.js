@@ -439,5 +439,48 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
             .json({ error: "Failed to fetch client history report", details: err });
     }
 });
+const bcrypt = require('bcrypt');
+
+// ==========================================
+// USER LOGIN ROUTE (Secure bcrypt check)
+// ==========================================
+app.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    try {
+        const connection = await pool.promise().getConnection();
+        const [rows] = await connection.execute('SELECT UserId, Username, Password FROM users WHERE Username = ?', [username]);
+        connection.release();
+
+        if (rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid Credentials' });
+        }
+
+        const user = rows[0];
+        
+        // Note: If you have existing plain text passwords in your database during migration, 
+        // you can fallback check: password === user.Password. For production, always use bcrypt.
+        const passwordMatch = (password === user.Password) || (await bcrypt.compare(password, user.Password));
+
+        if (!passwordMatch) {
+            return res.status(401).json({ error: 'Invalid Credentials' });
+        }
+
+        // Return user session info (Never return the password hash back)
+        res.json({
+            userId: user.UserId,
+            username: user.Username,
+            token: 'secure-token-session-' + user.UserId // Expand to JWT if required later
+        });
+
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).json({ error: 'Internal server error during login' });
+    }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

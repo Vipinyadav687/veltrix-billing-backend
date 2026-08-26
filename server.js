@@ -2,12 +2,13 @@ const express = require("express");
 const mysql = require("mysql2");
 const cors = require("cors");
 require("dotenv").config();
-const bcrypt = require('bcrypt');
 
 const app = express();
 app.use(express.json());
+
+// CORS configuration for local development and Vercel production frontend
 app.use(cors({
-    origin: ['https://your-app-name.vercel.app', 'http://localhost:4200'],
+    origin: ['https://veltrix-billing-frontend.vercel.app', 'http://localhost:4200'],
     credentials: true
 }));
 
@@ -108,29 +109,25 @@ app.post("/api/invoices", async (req, res) => {
 });
 
 // ==========================================
-// 3. GET DASHBOARD STATISTICS (NEW)
+// 3. GET DASHBOARD STATISTICS
 // ==========================================
 app.get("/api/dashboard/stats", async (req, res) => {
-    // Hardcoded to user 1 for now (update later when you add a login system)
     const userId = 1;
     const currentYear = new Date().getFullYear();
 
     const connection = await pool.promise().getConnection();
 
     try {
-        // 1. YTD Revenue
         const [revResult] = await connection.execute(
             "SELECT IFNULL(SUM(TotalAmount), 0) as total FROM invoices WHERE UserId=? AND YEAR(InvoiceDate)=?",
             [userId, currentYear],
         );
 
-        // 2. YTD Received
         const [recResult] = await connection.execute(
             "SELECT IFNULL(SUM(CreditAmount), 0) as total FROM clienttransactions WHERE UserID=? AND VchType='Receipt' AND YEAR(TransactionDate)=?",
             [userId, currentYear],
         );
 
-        // 3. Top 5 Clients
         const [topClients] = await connection.execute(
             `SELECT c.CompanyName, SUM(i.TotalAmount) as Amount 
              FROM invoices i JOIN clients c ON i.ClientId = c.ClientId 
@@ -139,7 +136,6 @@ app.get("/api/dashboard/stats", async (req, res) => {
             [userId, currentYear],
         );
 
-        // 4. Recent Invoices
         const [recentInvoices] = await connection.execute(
             `SELECT DATE_FORMAT(InvoiceDate, '%d-%b') as Date, c.CompanyName as Client, TotalAmount as Amount 
              FROM invoices i JOIN clients c ON i.ClientId = c.ClientId 
@@ -147,19 +143,16 @@ app.get("/api/dashboard/stats", async (req, res) => {
             [userId],
         );
 
-        // 5. Monthly Trend (Jan-Dec)
         const [trendResult] = await connection.execute(
             "SELECT MONTH(InvoiceDate) as month, SUM(TotalAmount) as amount FROM invoices WHERE UserId=? AND YEAR(InvoiceDate)=? GROUP BY MONTH(InvoiceDate)",
             [userId, currentYear],
         );
 
-        // Format monthly data into an array of 12 (Jan - Dec)
         const monthlyRevenue = new Array(12).fill(0);
         trendResult.forEach((row) => {
             monthlyRevenue[row.month - 1] = row.amount;
         });
 
-        // Calculate Totals safely
         const totalRevenue = parseFloat(revResult[0].total) || 0;
         const totalReceived = parseFloat(recResult[0].total) || 0;
         const outstanding = totalRevenue - totalReceived;
@@ -169,8 +162,8 @@ app.get("/api/dashboard/stats", async (req, res) => {
                 totalRevenue,
                 totalReceived,
                 outstanding,
-                totalExpenses: totalRevenue * 0.3, // Mocked 30% expense for new UI
-                netProfit: totalRevenue * 0.7, // Mocked 70% profit for new UI
+                totalExpenses: totalRevenue * 0.3,
+                netProfit: totalRevenue * 0.7,
             },
             monthlyRevenue,
             topClients,
@@ -185,12 +178,12 @@ app.get("/api/dashboard/stats", async (req, res) => {
         connection.release();
     }
 });
+
 // ==========================================
 // CREATE NEW CLIENT
 // ==========================================
 app.post("/api/clients", async (req, res) => {
-    const { userId, companyName, gstin, address, pincode, city, state } =
-        req.body;
+    const { userId, companyName, gstin, address, pincode, city, state } = req.body;
     try {
         const connection = await pool.promise().getConnection();
         const query = `INSERT INTO clients (UserId, CompanyName, GSTIN, Address, Pincode, City, State) VALUES (?, ?, ?, ?, ?, ?, ?)`;
@@ -234,6 +227,7 @@ app.put("/api/clients/:id", async (req, res) => {
         res.status(500).json({ error: "Failed to update client", details: err });
     }
 });
+
 // ==========================================
 // GET CLIENT LEDGER TRANSACTIONS
 // ==========================================
@@ -292,6 +286,7 @@ app.post("/api/ledger", async (req, res) => {
         res.status(500).json({ error: "Failed to save payment", details: err });
     }
 });
+
 // ==========================================
 // GET COMPANY SETTINGS
 // ==========================================
@@ -307,7 +302,6 @@ app.get("/api/company/:userId", async (req, res) => {
 
         if (rows.length > 0) {
             const company = rows[0];
-            // If logo exists as BLOB, convert to base64 string for easy display on the web frontend
             if (company.Logo) {
                 company.Logo = Buffer.from(company.Logo).toString("base64");
             }
@@ -326,19 +320,16 @@ app.get("/api/company/:userId", async (req, res) => {
 // SAVE OR UPDATE COMPANY SETTINGS
 // ==========================================
 app.post("/api/company", async (req, res) => {
-    const { userId, companyName, address, city, state, pin, gstin, logo } =
-        req.body;
+    const { userId, companyName, address, city, state, pin, gstin, logo } = req.body;
     try {
         const connection = await pool.promise().getConnection();
 
-        // Check if settings already exist for this user
         const [checkRows] = await connection.execute(
             "SELECT COUNT(*) as count FROM mycompany WHERE UserId = ?",
             [userId],
         );
         const exists = checkRows[0].count > 0;
 
-        // Convert base64 logo back to binary buffer if provided
         const logoBuffer = logo ? Buffer.from(logo, "base64") : null;
 
         if (!exists) {
@@ -386,7 +377,6 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
     try {
         const connection = await pool.promise().getConnection();
 
-        // 1. Calculate Opening Balance prior to fromDate
         const obQuery = `SELECT IFNULL(SUM(Debit), 0) - IFNULL(SUM(Credit), 0) AS OpeningBalance 
                          FROM (
                              SELECT TotalAmount AS Debit, 0.00 AS Credit FROM invoices WHERE (? = 0 OR ClientId = ?) AND InvoiceDate < ? 
@@ -404,7 +394,6 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
         ]);
         const openingBalance = obRows[0]?.OpeningBalance || 0;
 
-        // 2. Fetch Transactions within Date Range
         const query = `SELECT T.SortDate AS Date, T.Particulars, T.VchType, T.VchNo, T.Debit, T.Credit 
                        FROM (
                            SELECT i.InvoiceDate AS SortDate, 
@@ -443,8 +432,10 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
             .json({ error: "Failed to fetch client history report", details: err });
     }
 });
-const bcrypt = require('bcrypt');
 
+// ==========================================
+// USER LOGIN ROUTE (Plain text password check)
+// ==========================================
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
 
@@ -463,19 +454,8 @@ app.post('/api/auth/login', async (req, res) => {
 
         const user = rows[0];
         
-        // This handles both plain text passwords in your DB and bcrypt hashes
-        let passwordMatch = false;
-        if (password === user.Password) {
-            passwordMatch = true; // Matches your current plain text setup
-        } else {
-            try {
-                passwordMatch = await bcrypt.compare(password, user.Password); // Matches bcrypt if hashed later
-            } catch (e) {
-                passwordMatch = false;
-            }
-        }
-
-        if (!passwordMatch) {
+        // Direct plain-text comparison
+        if (password !== user.Password) {
             return res.status(401).json({ error: 'Invalid Credentials' });
         }
 
@@ -490,5 +470,6 @@ app.post('/api/auth/login', async (req, res) => {
         res.status(500).json({ error: 'Internal server error during login' });
     }
 });
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

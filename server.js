@@ -8,7 +8,7 @@ app.use(express.json());
 
 // CORS configuration for local development and Vercel production frontend
 app.use(cors({
-    origin: ['https://veltrix-billing-frontend.vercel.app', 'http://localhost:4200'],
+    origin: ['https://veltrix-billing-frontend.vercel.app', 'http://localhost:4200', 'http://localhost:4300'],
     credentials: true
 }));
 

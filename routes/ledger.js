@@ -2,126 +2,108 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 
-// GET: /api/ledger/:userId/:clientId
-router.get("/:userId/:clientId", async (req, res) => {
-    const { userId, clientId } = req.params;
-    try {
-        const connection = await pool.promise().getConnection();
-        const query = `SELECT TransactionDate AS Date, Particulars, VchType, VchNo, DebitAmount AS Debit, CreditAmount AS Credit 
-                       FROM clienttransactions 
-                       WHERE ClientID = ? AND UserID = ? 
-                       ORDER BY TransactionDate ASC`;
-        const [rows] = await connection.execute(query, [clientId, userId]);
-        connection.release();
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: "Failed to fetch ledger", details: err });
-    }
-});
-
-// POST: /api/ledger
-router.post("/", async (req, res) => {
-    const { clientId, userId, transactionDate, particulars, vchType, vchNo, oldDr, creditAmount, debitAmount, currentDr } = req.body;
-    try {
-        const connection = await pool.promise().getConnection();
-        const query = `INSERT INTO clienttransactions 
-                       (ClientID, UserID, TransactionDate, Particulars, VchType, VchNo, OldDr, CreditAmount, DebitAmount, CurrentDr) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        await connection.execute(query, [clientId, userId, transactionDate, particulars, vchType, vchNo, oldDr, creditAmount, debitAmount, currentDr]);
-        connection.release();
-        res.status(201).json({ message: "Payment record saved successfully!" });
-    } catch (err) {
-        res.status(500).json({ error: "Failed to save payment", details: err });
-    }
-});
-
-// GET: /api/ledger/history/:userId
 router.get("/history/:userId", async (req, res) => {
-    const { userId } = req.params;
-    const { clientId, fromDate, toDate } = req.query;
-
-    const parsedUserId = parseInt(userId, 10) || 1;
-    const parsedClientId = parseInt(clientId, 10) || 0;
-
-    // Ensure dates cover the full day
-    const startOfFromDate = `${fromDate} 00:00:00`;
-    const endOfToDate = `${toDate} 23:59:59`;
+    const userId = parseInt(req.params.userId, 10) || 1;
+    const clientId = parseInt(req.query.clientId, 10) || 0;
+    const fromDate = req.query.fromDate || '2026-04-01';
+    const toDate = req.query.toDate || '2026-08-29';
 
     try {
         const connection = await pool.promise().getConnection();
 
-        // ==========================================
-        // 1. DYNAMIC OPENING BALANCE QUERY
-        // ==========================================
-        let obQuery = `SELECT IFNULL(SUM(Debit), 0) - IFNULL(SUM(Credit), 0) AS OpeningBalance 
-                       FROM (
-                           SELECT TotalAmount AS Debit, 0.00 AS Credit 
-                           FROM invoices 
-                           WHERE UserId = ? AND InvoiceDate < ?`;
-        let obParams = [parsedUserId, startOfFromDate];
+        // 1. Opening Balance Query
+        let obQuery = `
+            SELECT IFNULL(SUM(debit), 0) - IFNULL(SUM(credit), 0) AS openingBalance 
+            FROM (
+                SELECT CAST(TotalAmount AS DECIMAL(15,2)) AS debit, 0.00 AS credit 
+                FROM invoices 
+                WHERE UserId = ? AND DATE(InvoiceDate) < ?
+        `;
+        let obParams = [userId, fromDate];
 
-        // Only add ClientId filter if a specific client is selected
-        if (parsedClientId > 0) {
+        if (clientId > 0) {
             obQuery += ` AND ClientId = ?`;
-            obParams.push(parsedClientId);
+            obParams.push(clientId);
         }
 
-        obQuery += ` UNION ALL 
-                     SELECT 0.00 AS Debit, CreditAmount AS Credit 
-                     FROM clienttransactions 
-                     WHERE UserID = ? AND TransactionDate < ? AND VchType = 'Receipt'`;
-        obParams.push(parsedUserId, startOfFromDate);
+        obQuery += `
+                UNION ALL 
+                SELECT 0.00 AS debit, CAST(CreditAmount AS DECIMAL(15,2)) AS credit 
+                FROM clienttransactions 
+                WHERE UserID = ? AND DATE(TransactionDate) < ? AND VchType = 'Receipt'
+        `;
+        obParams.push(userId, fromDate);
 
-        if (parsedClientId > 0) {
+        if (clientId > 0) {
             obQuery += ` AND ClientID = ?`;
-            obParams.push(parsedClientId);
+            obParams.push(clientId);
         }
-        obQuery += `) AS OB`;
+        obQuery += ` ) AS OB`;
 
         const [obRows] = await connection.execute(obQuery, obParams);
-        const openingBalance = obRows[0]?.OpeningBalance || 0;
+        const openingBalance = parseFloat(obRows[0]?.openingBalance) || 0;
 
-        // ==========================================
-        // 2. DYNAMIC TRANSACTIONS QUERY
-        // ==========================================
-        let query = `SELECT T.SortDate AS Date, T.Particulars, T.VchType, T.VchNo, T.Debit, T.Credit 
-                     FROM (
-                         SELECT i.InvoiceDate AS SortDate, 
-                                ${parsedClientId === 0 ? "CONCAT('Sales Invoice - ', c.CompanyName)" : "'Sales Invoice'"} AS Particulars, 
-                                'Sales' AS VchType, i.InvoiceNo AS VchNo, i.TotalAmount AS Debit, 0.00 AS Credit 
-                         FROM invoices i JOIN clients c ON i.ClientId = c.ClientId 
-                         WHERE i.UserId = ? AND i.InvoiceDate >= ? AND i.InvoiceDate <= ?`;
-        
-        let txParams = [parsedUserId, startOfFromDate, endOfToDate];
+        // 2. Transactions Query
+        let txQuery = `
+            SELECT 
+                DATE_FORMAT(SortDate, '%Y-%m-%d') AS date,
+                particulars,
+                vchType,
+                vchNo,
+                CAST(debit AS DECIMAL(15,2)) AS debit,
+                CAST(credit AS DECIMAL(15,2)) AS credit
+            FROM (
+                SELECT 
+                    i.InvoiceDate AS SortDate, 
+                    ${clientId === 0 ? "CONCAT('Sales Invoice - ', c.CompanyName)" : "'Sales Invoice'"} AS particulars, 
+                    'Sales' AS vchType, 
+                    i.InvoiceNo AS vchNo, 
+                    i.TotalAmount AS debit, 
+                    0.00 AS credit 
+                FROM invoices i 
+                JOIN clients c ON i.ClientId = c.ClientId 
+                WHERE i.UserId = ? AND DATE(i.InvoiceDate) >= ? AND DATE(i.InvoiceDate) <= ?
+        `;
+        let txParams = [userId, fromDate, toDate];
 
-        if (parsedClientId > 0) {
-            query += ` AND i.ClientId = ?`;
-            txParams.push(parsedClientId);
+        if (clientId > 0) {
+            txQuery += ` AND i.ClientId = ?`;
+            txParams.push(clientId);
         }
 
-        query += ` UNION ALL 
-                   SELECT ct.TransactionDate AS SortDate, 
-                          ${parsedClientId === 0 ? "CONCAT(ct.Particulars, ' - ', c.CompanyName)" : "ct.Particulars"} AS Particulars, 
-                          ct.VchType, ct.VchNo, 0.00 AS Debit, ct.CreditAmount AS Credit 
-                   FROM clienttransactions ct JOIN clients c ON ct.ClientID = c.ClientId 
-                   WHERE ct.UserID = ? AND ct.TransactionDate >= ? AND ct.TransactionDate <= ? AND ct.VchType = 'Receipt'`;
-        
-        txParams.push(parsedUserId, startOfFromDate, endOfToDate);
+        txQuery += `
+                UNION ALL 
+                SELECT 
+                    ct.TransactionDate AS SortDate, 
+                    ${clientId === 0 ? "CONCAT(ct.Particulars, ' - ', c.CompanyName)" : "ct.Particulars"} AS particulars, 
+                    ct.VchType AS vchType, 
+                    ct.VchNo AS vchNo, 
+                    0.00 AS debit, 
+                    ct.CreditAmount AS credit 
+                FROM clienttransactions ct 
+                JOIN clients c ON ct.ClientID = c.ClientId 
+                WHERE ct.UserID = ? AND DATE(ct.TransactionDate) >= ? AND DATE(ct.TransactionDate) <= ? AND ct.VchType = 'Receipt'
+        `;
+        txParams.push(userId, fromDate, toDate);
 
-        if (parsedClientId > 0) {
-            query += ` AND ct.ClientID = ?`;
-            txParams.push(parsedClientId);
+        if (clientId > 0) {
+            txQuery += ` AND ct.ClientID = ?`;
+            txParams.push(clientId);
         }
 
-        query += `) T ORDER BY T.SortDate ASC`;
+        txQuery += ` ) T ORDER BY SortDate ASC`;
 
-        const [transactions] = await connection.execute(query, txParams);
-
+        const [transactions] = await connection.execute(txQuery, txParams);
         connection.release();
-        res.json({ openingBalance, transactions });
+
+        res.json({
+            openingBalance: openingBalance,
+            transactions: transactions
+        });
+
     } catch (err) {
-        console.error("Ledger query failed:", err);
-        res.status(500).json({ error: "Failed to fetch client history report", details: err.message });
+        console.error("Ledger History Error:", err);
+        res.status(500).json({ error: "Failed to fetch ledger report", details: err.message });
     }
 });
 

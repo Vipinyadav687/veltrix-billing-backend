@@ -107,4 +107,104 @@ router.get("/history/:userId", async (req, res) => {
     }
 });
 
+// GET: /api/ledger/:userId/:clientId (Combined Invoices & Payment Receipts)
+router.get("/:userId/:clientId", async (req, res) => {
+    const userId = parseInt(req.params.userId, 10) || 1;
+    const clientId = parseInt(req.params.clientId, 10);
+
+    if (!clientId) {
+        return res.status(400).json({ error: "Valid ClientId is required" });
+    }
+
+    try {
+        const connection = await pool.promise().getConnection();
+
+        const query = `
+            SELECT 
+                DATE_FORMAT(SortDate, '%Y-%m-%d') AS Date,
+                Particulars,
+                VchType,
+                VchNo,
+                CAST(Debit AS DECIMAL(15,2)) AS Debit,
+                CAST(Credit AS DECIMAL(15,2)) AS Credit
+            FROM (
+                -- 1. Sales Invoices (Debits)
+                SELECT 
+                    InvoiceDate AS SortDate,
+                    'Sales Invoice' AS Particulars,
+                    'Sales' AS VchType,
+                    InvoiceNo AS VchNo,
+                    TotalAmount AS Debit,
+                    0.00 AS Credit
+                FROM invoices
+                WHERE UserId = ? AND ClientId = ?
+
+                UNION ALL
+
+                -- 2. Payment Receipts (Credits)
+                SELECT 
+                    TransactionDate AS SortDate,
+                    Particulars,
+                    VchType,
+                    VchNo,
+                    DebitAmount AS Debit,
+                    CreditAmount AS Credit
+                FROM clienttransactions
+                WHERE UserID = ? AND ClientID = ?
+            ) T 
+            ORDER BY SortDate ASC
+        `;
+
+        const [rows] = await connection.execute(query, [userId, clientId, userId, clientId]);
+        connection.release();
+
+        res.json(rows);
+    } catch (err) {
+        console.error("Fetch client ledger error:", err);
+        res.status(500).json({ error: "Failed to fetch ledger", details: err.message });
+    }
+});
+
+// POST: /api/ledger (Save Payment Receipt)
+router.post("/", async (req, res) => {
+    const {
+        clientId,
+        userId,
+        transactionDate,
+        particulars,
+        vchType,
+        vchNo,
+        oldDr,
+        creditAmount,
+        debitAmount,
+        currentDr
+    } = req.body;
+
+    try {
+        const connection = await pool.promise().getConnection();
+        const query = `
+            INSERT INTO clienttransactions 
+            (ClientID, UserID, TransactionDate, Particulars, VchType, VchNo, OldDr, CreditAmount, DebitAmount, CurrentDr) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        await connection.execute(query, [
+            clientId,
+            userId,
+            transactionDate,
+            particulars || 'Payment Received',
+            vchType || 'Receipt',
+            vchNo,
+            oldDr || 0.00,
+            creditAmount || 0.00,
+            debitAmount || 0.00,
+            currentDr || 0.00
+        ]);
+        connection.release();
+
+        res.status(201).json({ message: "Payment recorded successfully!" });
+    } catch (err) {
+        console.error("Save payment error:", err);
+        res.status(500).json({ error: "Failed to save payment", details: err.message });
+    }
+});
 module.exports = router;

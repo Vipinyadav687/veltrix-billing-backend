@@ -40,48 +40,88 @@ router.get("/history/:userId", async (req, res) => {
     const { userId } = req.params;
     const { clientId, fromDate, toDate } = req.query;
 
+    const parsedUserId = parseInt(userId, 10) || 1;
     const parsedClientId = parseInt(clientId, 10) || 0;
+
+    // Ensure dates cover the full day
     const startOfFromDate = `${fromDate} 00:00:00`;
     const endOfToDate = `${toDate} 23:59:59`;
 
     try {
         const connection = await pool.promise().getConnection();
 
-        const obQuery = `SELECT IFNULL(SUM(Debit), 0) - IFNULL(SUM(Credit), 0) AS OpeningBalance 
-                         FROM (
-                             SELECT TotalAmount AS Debit, 0.00 AS Credit FROM invoices WHERE (? = 0 OR ClientId = ?) AND InvoiceDate < ? 
-                             UNION ALL 
-                             SELECT 0.00 AS Debit, CreditAmount AS Credit FROM clienttransactions WHERE (? = 0 OR ClientID = ?) AND TransactionDate < ? AND VchType = 'Receipt'
-                         ) AS OB`;
+        // ==========================================
+        // 1. DYNAMIC OPENING BALANCE QUERY
+        // ==========================================
+        let obQuery = `SELECT IFNULL(SUM(Debit), 0) - IFNULL(SUM(Credit), 0) AS OpeningBalance 
+                       FROM (
+                           SELECT TotalAmount AS Debit, 0.00 AS Credit 
+                           FROM invoices 
+                           WHERE UserId = ? AND InvoiceDate < ?`;
+        let obParams = [parsedUserId, startOfFromDate];
 
-        const [obRows] = await connection.execute(obQuery, [parsedClientId, parsedClientId, startOfFromDate, parsedClientId, parsedClientId, startOfFromDate]);
+        // Only add ClientId filter if a specific client is selected
+        if (parsedClientId > 0) {
+            obQuery += ` AND ClientId = ?`;
+            obParams.push(parsedClientId);
+        }
+
+        obQuery += ` UNION ALL 
+                     SELECT 0.00 AS Debit, CreditAmount AS Credit 
+                     FROM clienttransactions 
+                     WHERE UserID = ? AND TransactionDate < ? AND VchType = 'Receipt'`;
+        obParams.push(parsedUserId, startOfFromDate);
+
+        if (parsedClientId > 0) {
+            obQuery += ` AND ClientID = ?`;
+            obParams.push(parsedClientId);
+        }
+        obQuery += `) AS OB`;
+
+        const [obRows] = await connection.execute(obQuery, obParams);
         const openingBalance = obRows[0]?.OpeningBalance || 0;
 
-        const query = `SELECT T.SortDate AS Date, T.Particulars, T.VchType, T.VchNo, T.Debit, T.Credit 
-                       FROM (
-                           SELECT i.InvoiceDate AS SortDate, 
-                                  IF(? = 0, CONCAT('Sales Invoice - ', c.CompanyName), 'Sales Invoice') AS Particulars, 
-                                  'Sales' AS VchType, i.InvoiceNo AS VchNo, i.TotalAmount AS Debit, 0.00 AS Credit 
-                           FROM invoices i JOIN clients c ON i.ClientId = c.ClientId 
-                           WHERE (? = 0 OR i.ClientId = ?) AND i.InvoiceDate >= ? AND i.InvoiceDate <= ? 
-                           UNION ALL 
-                           SELECT ct.TransactionDate AS SortDate, 
-                                  IF(? = 0, CONCAT(ct.Particulars, ' - ', c.CompanyName), ct.Particulars) AS Particulars, 
-                                  ct.VchType, ct.VchNo, 0.00 AS Debit, ct.CreditAmount AS Credit 
-                           FROM clienttransactions ct JOIN clients c ON ct.ClientID = c.ClientId 
-                           WHERE (? = 0 OR ct.ClientID = ?) AND ct.TransactionDate >= ? AND ct.TransactionDate <= ? AND ct.VchType = 'Receipt'
-                       ) T ORDER BY T.SortDate ASC`;
+        // ==========================================
+        // 2. DYNAMIC TRANSACTIONS QUERY
+        // ==========================================
+        let query = `SELECT T.SortDate AS Date, T.Particulars, T.VchType, T.VchNo, T.Debit, T.Credit 
+                     FROM (
+                         SELECT i.InvoiceDate AS SortDate, 
+                                ${parsedClientId === 0 ? "CONCAT('Sales Invoice - ', c.CompanyName)" : "'Sales Invoice'"} AS Particulars, 
+                                'Sales' AS VchType, i.InvoiceNo AS VchNo, i.TotalAmount AS Debit, 0.00 AS Credit 
+                         FROM invoices i JOIN clients c ON i.ClientId = c.ClientId 
+                         WHERE i.UserId = ? AND i.InvoiceDate >= ? AND i.InvoiceDate <= ?`;
+        
+        let txParams = [parsedUserId, startOfFromDate, endOfToDate];
 
-        const [transactions] = await connection.execute(query, [
-            parsedClientId, parsedClientId, parsedClientId, startOfFromDate, endOfToDate,
-            parsedClientId, parsedClientId, parsedClientId, startOfFromDate, endOfToDate,
-        ]);
+        if (parsedClientId > 0) {
+            query += ` AND i.ClientId = ?`;
+            txParams.push(parsedClientId);
+        }
+
+        query += ` UNION ALL 
+                   SELECT ct.TransactionDate AS SortDate, 
+                          ${parsedClientId === 0 ? "CONCAT(ct.Particulars, ' - ', c.CompanyName)" : "ct.Particulars"} AS Particulars, 
+                          ct.VchType, ct.VchNo, 0.00 AS Debit, ct.CreditAmount AS Credit 
+                   FROM clienttransactions ct JOIN clients c ON ct.ClientID = c.ClientId 
+                   WHERE ct.UserID = ? AND ct.TransactionDate >= ? AND ct.TransactionDate <= ? AND ct.VchType = 'Receipt'`;
+        
+        txParams.push(parsedUserId, startOfFromDate, endOfToDate);
+
+        if (parsedClientId > 0) {
+            query += ` AND ct.ClientID = ?`;
+            txParams.push(parsedClientId);
+        }
+
+        query += `) T ORDER BY T.SortDate ASC`;
+
+        const [transactions] = await connection.execute(query, txParams);
 
         connection.release();
         res.json({ openingBalance, transactions });
     } catch (err) {
         console.error("Ledger query failed:", err);
-        res.status(500).json({ error: "Failed to fetch client history report", details: err });
+        res.status(500).json({ error: "Failed to fetch client history report", details: err.message });
     }
 });
 

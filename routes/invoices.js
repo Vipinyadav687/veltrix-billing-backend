@@ -40,4 +40,50 @@ router.post("/", async (req, res) => {
     }
 });
 
+// GET: /api/invoices/single/:userId/:invoiceNo
+router.get("/single/:userId/:invoiceNo", async (req, res) => {
+    const { userId, invoiceNo } = req.params;
+
+    try {
+        const connection = await pool.promise().getConnection();
+
+        // 1. Fetch Invoice + Client Details
+        const invQuery = `
+            SELECT i.*, c.CompanyName, c.GSTIN AS ClientGST, c.Address AS ClientAddr, 
+                   c.Pincode AS ClientPin, c.State AS ClientState 
+            FROM invoices i 
+            JOIN clients c ON i.ClientId = c.ClientId 
+            WHERE i.InvoiceNo = ? AND i.UserId = ?
+        `;
+        const [invRows] = await connection.execute(invQuery, [invoiceNo, userId]);
+
+        if (invRows.length === 0) {
+            connection.release();
+            return res.status(404).json({ error: "Invoice not found" });
+        }
+
+        // 2. Fetch Line Items
+        const itemQuery = `SELECT * FROM invoiceitems WHERE InvoiceNo = ? AND UserId = ?`;
+        const [itemRows] = await connection.execute(itemQuery, [invoiceNo, userId]);
+
+        // 3. Fetch Company Details (for header and logo)
+        const [compRows] = await connection.execute(`SELECT * FROM mycompany WHERE UserId = ?`, [userId]);
+        let company = compRows.length > 0 ? compRows[0] : null;
+        if (company && company.Logo) {
+            company.Logo = Buffer.from(company.Logo).toString("base64");
+        }
+
+        connection.release();
+
+        res.json({
+            invoice: invRows[0],
+            items: itemRows,
+            company: company
+        });
+    } catch (err) {
+        console.error("Fetch invoice error:", err);
+        res.status(500).json({ error: "Database query failed", details: err.message });
+    }
+});
+
 module.exports = router;

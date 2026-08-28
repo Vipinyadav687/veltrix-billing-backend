@@ -1,36 +1,41 @@
-const express = require("express");
-const cors = require("cors");
-require("dotenv").config();
+const express = require('express');
+const router = express.Router();
+const pool = require('../db'); // Only this require is needed here!
 
-const app = express();
-app.use(express.json());
+// POST: /api/auth/login
+router.post('/login', async (req, res) => {
+    const { username, password } = req.body;
 
-// CORS configuration
-app.use(cors({
-    origin: ['https://devorbit-sigma.vercel.app', 'http://localhost:4200', 'http://localhost:4300'],
-    credentials: true
-}));
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
 
-// ==========================================
-// IMPORT ROUTE FILES
-// ==========================================
-const authRoutes = require('./routes/auth');
-const clientRoutes = require('./routes/clients');
-const companyRoutes = require('./routes/company');
-const dashboardRoutes = require('./routes/dashboard');
-const invoiceRoutes = require('./routes/invoices');
-const ledgerRoutes = require('./routes/ledger');
+    try {
+        const connection = await pool.promise().getConnection();
+        const [rows] = await connection.execute('SELECT UserId, Username, Password FROM users WHERE Username = ?', [username]);
+        connection.release();
 
-// ==========================================
-// MOUNT ROUTES
-// ==========================================
-app.use('/api/auth', authRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/company', companyRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/invoices', invoiceRoutes);
-app.use('/api/ledger', ledgerRoutes);
+        if (rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid Credentials' });
+        }
 
-// Start Server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+        const user = rows[0];
+
+        // Direct plain-text comparison
+        if (password !== user.Password) {
+            return res.status(401).json({ error: 'Invalid Credentials' });
+        }
+
+        res.json({
+            userId: user.UserId,
+            username: user.Username,
+            token: 'secure-token-session-' + user.UserId
+        });
+
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).json({ error: 'Internal server error during login' });
+    }
+});
+
+module.exports = router;

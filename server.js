@@ -368,6 +368,13 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
     const { userId } = req.params;
     const { clientId, fromDate, toDate } = req.query;
 
+    // 1. FIX: Convert clientId from String to Number so (? = 0) works in MySQL
+    const parsedClientId = parseInt(clientId, 10) || 0;
+
+    // 2. FIX: Append time to dates so DATETIME columns include the ENTIRE 'toDate'
+    const startOfFromDate = `${fromDate} 00:00:00`;
+    const endOfToDate = `${toDate} 23:59:59`;
+
     try {
         const connection = await pool.promise().getConnection();
 
@@ -379,12 +386,12 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
                          ) AS OB`;
 
         const [obRows] = await connection.execute(obQuery, [
-            clientId,
-            clientId,
-            fromDate,
-            clientId,
-            clientId,
-            fromDate,
+            parsedClientId,
+            parsedClientId,
+            startOfFromDate,
+            parsedClientId,
+            parsedClientId,
+            startOfFromDate,
         ]);
         const openingBalance = obRows[0]?.OpeningBalance || 0;
 
@@ -406,21 +413,23 @@ app.get("/api/ledger/history/:userId", async (req, res) => {
                        ) T ORDER BY T.SortDate ASC`;
 
         const [transactions] = await connection.execute(query, [
-            clientId,
-            clientId,
-            clientId,
-            fromDate,
-            toDate,
-            clientId,
-            clientId,
-            clientId,
-            fromDate,
-            toDate,
+            parsedClientId, // For IF(? = 0...)
+            parsedClientId, // For WHERE (? = 0... )
+            parsedClientId, // For WHERE (... OR ClientId = ?)
+            startOfFromDate,
+            endOfToDate,
+            
+            parsedClientId, // For IF(? = 0...)
+            parsedClientId, // For WHERE (? = 0... )
+            parsedClientId, // For WHERE (... OR ClientId = ?)
+            startOfFromDate,
+            endOfToDate,
         ]);
 
         connection.release();
         res.json({ openingBalance, transactions });
     } catch (err) {
+        console.error("Ledger query failed:", err);
         res
             .status(500)
             .json({ error: "Failed to fetch client history report", details: err });

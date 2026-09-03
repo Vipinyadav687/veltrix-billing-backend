@@ -25,9 +25,6 @@ const labPool = mysql.createPool({
 // POST: /api/auth/login
 router.post('/login', async (req, res) => {
     const { username, password, targetApp } = req.body;
-console.log("--- LOGIN ATTEMPT ---");
-    console.log("Username received:", username);
-    console.log("Target App received:", targetApp);
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password are required' });
     }

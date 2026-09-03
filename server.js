@@ -14,7 +14,6 @@ app.use(cors({
 // ==========================================
 // IMPORT BILLING ROUTE FILES
 // ==========================================
-const authRoutes = require('./routes/billing/auth'); // Or keep as './routes/auth' if shared
 const clientRoutes = require('./routes/billing/clients');
 const companyRoutes = require('./routes/billing/company');
 const dashboardRoutes = require('./routes/billing/dashboard');
@@ -27,16 +26,15 @@ const ledgerRoutes = require('./routes/billing/ledger');
 const labSettingsRoutes = require('./routes/lab/settings');
 const labReportsRoutes = require('./routes/lab/reports');
 const labEntriesRoutes = require('./routes/lab/entries');
+const authRoutes = require('./routes/auth'); // Pointing to your shared/unified auth file
+app.use('/api/auth', authRoutes);
 // MOUNT LAB ROUTES
 // ==========================================
-app.use('/api/lab/auth', labAuthRoutes);           // <-- ADD THIS LINE
 app.use('/api/lab/settings', labSettingsRoutes);
 app.use('/api/lab/reports', labReportsRoutes);
 app.use('/api/lab/entries', labEntriesRoutes);
 // ==========================================
 // MOUNT BILLING ROUTES
-// ==========================================
-app.use('/api/billing/auth', authRoutes);
 app.use('/api/billing/clients', clientRoutes);
 app.use('/api/billing/company', companyRoutes);
 app.use('/api/billing/dashboard', dashboardRoutes);

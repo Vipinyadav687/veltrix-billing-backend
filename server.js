@@ -12,24 +12,43 @@ app.use(cors({
 }));
 
 // ==========================================
-// IMPORT ROUTE FILES (Updated paths with '../' for the api folder)
+// IMPORT BILLING ROUTE FILES
 // ==========================================
-const authRoutes = require('./routes/auth');
-const clientRoutes = require('./routes/clients');
-const companyRoutes = require('./routes/company');
-const dashboardRoutes = require('./routes/dashboard');
-const invoiceRoutes = require('./routes/invoices');
-const ledgerRoutes = require('./routes/ledger');
+const authRoutes = require('./routes/billing/auth'); // Or keep as './routes/auth' if shared
+const clientRoutes = require('./routes/billing/clients');
+const companyRoutes = require('./routes/billing/company');
+const dashboardRoutes = require('./routes/billing/dashboard');
+const invoiceRoutes = require('./routes/billing/invoices');
+const ledgerRoutes = require('./routes/billing/ledger');
 
 // ==========================================
-// MOUNT ROUTES
+// IMPORT LAB ROUTE FILES (From your new lab subfolder)
 // ==========================================
-app.use('/api/auth', authRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/company', companyRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/invoices', invoiceRoutes);
-app.use('/api/ledger', ledgerRoutes);
+const labSettingsRoutes = require('./routes/lab/settings');
+const labReportsRoutes = require('./routes/lab/reports');
+const labEntriesRoutes = require('./routes/lab/entries');
+// MOUNT LAB ROUTES
+// ==========================================
+app.use('/api/lab/auth', labAuthRoutes);           // <-- ADD THIS LINE
+app.use('/api/lab/settings', labSettingsRoutes);
+app.use('/api/lab/reports', labReportsRoutes);
+app.use('/api/lab/entries', labEntriesRoutes);
+// ==========================================
+// MOUNT BILLING ROUTES
+// ==========================================
+app.use('/api/billing/auth', authRoutes);
+app.use('/api/billing/clients', clientRoutes);
+app.use('/api/billing/company', companyRoutes);
+app.use('/api/billing/dashboard', dashboardRoutes);
+app.use('/api/billing/invoices', invoiceRoutes);
+app.use('/api/billing/ledger', ledgerRoutes);
+
+// ==========================================
+// MOUNT LAB ROUTES
+// ==========================================
+app.use('/api/lab/settings', labSettingsRoutes);
+app.use('/api/lab/reports', labReportsRoutes);
+app.use('/api/lab/entries', labEntriesRoutes);
 
 // Export for Vercel
 module.exports = app;

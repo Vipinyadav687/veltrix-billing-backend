@@ -14,12 +14,12 @@ app.use(cors({
 // ==========================================
 // IMPORT ROUTE FILES (Updated paths with '../' for the api folder)
 // ==========================================
-const authRoutes = require('../routes/auth');
-const clientRoutes = require('../routes/clients');
-const companyRoutes = require('../routes/company');
-const dashboardRoutes = require('../routes/dashboard');
-const invoiceRoutes = require('../routes/invoices');
-const ledgerRoutes = require('../routes/ledger');
+const authRoutes = require('./routes/auth');
+const clientRoutes = require('./routes/clients');
+const companyRoutes = require('./routes/company');
+const dashboardRoutes = require('./routes/dashboard');
+const invoiceRoutes = require('./routes/invoices');
+const ledgerRoutes = require('./routes/ledger');
 
 // ==========================================
 // MOUNT ROUTES

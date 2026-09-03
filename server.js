@@ -12,46 +12,46 @@ app.use(cors({
 }));
 
 // ==========================================
-// IMPORT BILLING ROUTE FILES
+// 1. IMPORT ROUTE FILES
 // ==========================================
+// Unified Auth
+const authRoutes = require('./routes/auth'); 
+
+// Billing Routes
 const clientRoutes = require('./routes/billing/clients');
 const companyRoutes = require('./routes/billing/company');
 const dashboardRoutes = require('./routes/billing/dashboard');
 const invoiceRoutes = require('./routes/billing/invoices');
 const ledgerRoutes = require('./routes/billing/ledger');
 
-// ==========================================
-// IMPORT LAB ROUTE FILES (From your new lab subfolder)
-// ==========================================
+// Lab Routes
 const labSettingsRoutes = require('./routes/lab/settings');
 const labReportsRoutes = require('./routes/lab/reports');
 const labEntriesRoutes = require('./routes/lab/entries');
-const authRoutes = require('./routes/auth'); // Pointing to your shared/unified auth file
+
+// ==========================================
+// 2. MOUNT ROUTES
+// ==========================================
+// Mount Auth
 app.use('/api/auth', authRoutes);
-// MOUNT LAB ROUTES
-// ==========================================
-app.use('/api/lab/settings', labSettingsRoutes);
-app.use('/api/lab/reports', labReportsRoutes);
-app.use('/api/lab/entries', labEntriesRoutes);
-// ==========================================
-// MOUNT BILLING ROUTES
+
+// Mount Billing
 app.use('/api/billing/clients', clientRoutes);
 app.use('/api/billing/company', companyRoutes);
 app.use('/api/billing/dashboard', dashboardRoutes);
 app.use('/api/billing/invoices', invoiceRoutes);
 app.use('/api/billing/ledger', ledgerRoutes);
 
-// ==========================================
-// MOUNT LAB ROUTES
-// ==========================================
+// Mount Lab
 app.use('/api/lab/settings', labSettingsRoutes);
 app.use('/api/lab/reports', labReportsRoutes);
 app.use('/api/lab/entries', labEntriesRoutes);
 
-// Export for Vercel
+// ==========================================
+// 3. SERVER EXPORT & STARTUP
+// ==========================================
 module.exports = app;
 
-// Start Server locally only (Vercel handles this in production)
 if (process.env.NODE_ENV !== 'production') {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

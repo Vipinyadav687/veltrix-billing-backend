@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../db');
+const pool = require('../../db');
 
 // GET: /api/dashboard/stats
 router.get("/stats", async (req, res) => {

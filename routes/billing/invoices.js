@@ -1,13 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../../db');
+const { billingPool } = require('../../db');
 
 // POST: /api/invoices
 router.post("/", async (req, res) => {
     const { userId, clientId, invoiceNo, invoiceDate, dueDate, placeOfSupply, poRef, poDate, subTotal, sgst, cgst, igst, totalAmount, notes, terms, items } = req.body;
 
+    let connection;
     try {
-        const connection = await pool.promise().getConnection();
+        // Get a dedicated connection for the transaction
+        connection = await billingPool.getConnection();
         await connection.beginTransaction();
 
         // 1. Insert Invoice Header
@@ -32,11 +34,13 @@ router.post("/", async (req, res) => {
         }
 
         await connection.commit();
-        connection.release();
         res.status(201).json({ message: "Invoice saved successfully!" });
     } catch (err) {
+        if (connection) await connection.rollback(); // Rollback changes if anything fails
         console.error('Invoice save error:', err);
-        res.status(500).json({ error: "Database transaction failed", details: err });
+        res.status(500).json({ error: "Database transaction failed", details: err.message });
+    } finally {
+        if (connection) connection.release(); // Always release connection back to pool
     }
 });
 
@@ -45,8 +49,6 @@ router.get("/single/:userId/:invoiceNo", async (req, res) => {
     const { userId, invoiceNo } = req.params;
 
     try {
-        const connection = await pool.promise().getConnection();
-
         // 1. Fetch Invoice + Client Details
         const invQuery = `
             SELECT i.*, c.CompanyName, c.GSTIN AS ClientGST, c.Address AS ClientAddr, 
@@ -55,25 +57,22 @@ router.get("/single/:userId/:invoiceNo", async (req, res) => {
             JOIN clients c ON i.ClientId = c.ClientId 
             WHERE i.InvoiceNo = ? AND i.UserId = ?
         `;
-        const [invRows] = await connection.execute(invQuery, [invoiceNo, userId]);
+        const [invRows] = await billingPool.execute(invQuery, [invoiceNo, userId]);
 
         if (invRows.length === 0) {
-            connection.release();
             return res.status(404).json({ error: "Invoice not found" });
         }
 
         // 2. Fetch Line Items
         const itemQuery = `SELECT * FROM invoiceitems WHERE InvoiceNo = ? AND UserId = ?`;
-        const [itemRows] = await connection.execute(itemQuery, [invoiceNo, userId]);
+        const [itemRows] = await billingPool.execute(itemQuery, [invoiceNo, userId]);
 
         // 3. Fetch Company Details (for header and logo)
-        const [compRows] = await connection.execute(`SELECT * FROM mycompany WHERE UserId = ?`, [userId]);
+        const [compRows] = await billingPool.execute(`SELECT * FROM mycompany WHERE UserId = ?`, [userId]);
         let company = compRows.length > 0 ? compRows[0] : null;
         if (company && company.Logo) {
             company.Logo = Buffer.from(company.Logo).toString("base64");
         }
-
-        connection.release();
 
         res.json({
             invoice: invRows[0],

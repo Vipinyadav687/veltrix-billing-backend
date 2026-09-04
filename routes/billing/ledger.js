@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../../db');
+const { billingPool } = require('../../db');
 
 router.get("/history/:userId", async (req, res) => {
     const userId = parseInt(req.params.userId, 10) || 1;
@@ -9,8 +9,6 @@ router.get("/history/:userId", async (req, res) => {
     const toDate = req.query.toDate || '2026-08-29';
 
     try {
-        const connection = await pool.promise().getConnection();
-
         // 1. Opening Balance Query
         let obQuery = `
             SELECT IFNULL(SUM(debit), 0) - IFNULL(SUM(credit), 0) AS openingBalance 
@@ -40,7 +38,7 @@ router.get("/history/:userId", async (req, res) => {
         }
         obQuery += ` ) AS OB`;
 
-        const [obRows] = await connection.execute(obQuery, obParams);
+        const [obRows] = await billingPool.execute(obQuery, obParams);
         const openingBalance = parseFloat(obRows[0]?.openingBalance) || 0;
 
         // 2. Transactions Query
@@ -93,8 +91,7 @@ router.get("/history/:userId", async (req, res) => {
 
         txQuery += ` ) T ORDER BY SortDate ASC`;
 
-        const [transactions] = await connection.execute(txQuery, txParams);
-        connection.release();
+        const [transactions] = await billingPool.execute(txQuery, txParams);
 
         res.json({
             openingBalance: openingBalance,
@@ -117,8 +114,6 @@ router.get("/:userId/:clientId", async (req, res) => {
     }
 
     try {
-        const connection = await pool.promise().getConnection();
-
         const query = `
             SELECT 
                 DATE_FORMAT(SortDate, '%Y-%m-%d') AS Date,
@@ -155,8 +150,7 @@ router.get("/:userId/:clientId", async (req, res) => {
             ORDER BY SortDate ASC
         `;
 
-        const [rows] = await connection.execute(query, [userId, clientId, userId, clientId]);
-        connection.release();
+        const [rows] = await billingPool.execute(query, [userId, clientId, userId, clientId]);
 
         res.json(rows);
     } catch (err) {
@@ -181,13 +175,12 @@ router.post("/", async (req, res) => {
     } = req.body;
 
     try {
-        const connection = await pool.promise().getConnection();
         const query = `
             INSERT INTO clienttransactions 
             (ClientID, UserID, TransactionDate, Particulars, VchType, VchNo, OldDr, CreditAmount, DebitAmount, CurrentDr) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        await connection.execute(query, [
+        await billingPool.execute(query, [
             clientId,
             userId,
             transactionDate,
@@ -199,7 +192,6 @@ router.post("/", async (req, res) => {
             debitAmount || 0.00,
             currentDr || 0.00
         ]);
-        connection.release();
 
         res.status(201).json({ message: "Payment recorded successfully!" });
     } catch (err) {
@@ -207,4 +199,5 @@ router.post("/", async (req, res) => {
         res.status(500).json({ error: "Failed to save payment", details: err.message });
     }
 });
+
 module.exports = router;

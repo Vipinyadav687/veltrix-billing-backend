@@ -1,26 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const mysql = require('mysql2/promise');
-
-// 1. Billing Database Pool
-const billingPool = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: 4000,
-    ssl: { rejectUnauthorized: true },
-});
-
-// 2. Lab Database Pool
-const labPool = mysql.createPool({
-    host: process.env.LAB_DB_HOST,
-    port: process.env.LAB_DB_PORT,
-    database: process.env.LAB_DB_NAME,
-    user: process.env.LAB_DB_USER,
-    password: process.env.LAB_DB_PASS,
-    ssl: { rejectUnauthorized: true }
-});
+const { billingPool, labPool } = require('../db');
 
 // POST: /api/auth/login
 router.post('/login', async (req, res) => {
@@ -53,7 +33,7 @@ router.post('/login', async (req, res) => {
             userId: user.UserId || user.Id,
             username: user.Username,
             token: `secure-${targetApp || 'billing'}-token-` + (user.UserId || user.Id),
-            accessLevel: user.AccessLevel || 3, // Handy if logging into Lab
+            accessLevel: user.AccessLevel || 3, 
             allowedApps: [targetApp || 'billing']
         });
 

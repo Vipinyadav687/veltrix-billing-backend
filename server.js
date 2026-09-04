@@ -28,6 +28,7 @@ const ledgerRoutes = require('./routes/billing/ledger');
 const labSettingsRoutes = require('./routes/lab/settings');
 const labReportsRoutes = require('./routes/lab/reports');
 const labEntriesRoutes = require('./routes/lab/entries');
+const labDoctorRoutes = require('./routes/lab/doctors');
 
 // ==========================================
 // 2. MOUNT ROUTES
@@ -46,6 +47,7 @@ app.use('/api/billing/ledger', ledgerRoutes);
 app.use('/api/lab/settings', labSettingsRoutes);
 app.use('/api/lab/reports', labReportsRoutes);
 app.use('/api/lab/entries', labEntriesRoutes);
+app.use('/api/lab/doctors', labDoctorRoutes);
 
 // ==========================================
 // 3. SERVER EXPORT & STARTUP
